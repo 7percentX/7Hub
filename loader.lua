@@ -1,4 +1,4 @@
-local BLACKBOX_URL = ""
+local BLACKBOX_URL = "https://raw.githubusercontent.com/7percentX/7Hub/refs/heads/main/blackbox.lua"
 
 local fetchSuccess, SecureData = pcall(function()
     return loadstring(game:HttpGet(BLACKBOX_URL))()
