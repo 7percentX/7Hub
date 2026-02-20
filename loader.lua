@@ -46,21 +46,51 @@ local HttpService = game:GetService("HttpService")
 local WORKER_URL = "https://7hub.camminhtam1.workers.dev/" 
 
 -- ============================================
--- API COMMUNICATION
+-- API COMMUNICATION & UTILS
 -- ============================================
 
--- Hàm này dùng để lấy link cho người dùng copy
-local function copyLink()
-    local response = fRequest({
-        Url = "https://api.platoboost.com/public/start",
-        Method = "POST",
-        Headers = {["Content-Type"] = "application/json"},
-        Body = HttpService:JSONEncode({
-            service = 20358,
-            identifier = fGetHwid()
-        })
-    })
+-- 1. Hàm băm HWID sang Hex (Chuẩn hóa cho PlatoBoost)
+local function lDigest(input)
+    local inputStr = tostring(input)
+    local hashHex = ""
+    for i = 1, #inputStr do
+        hashHex = hashHex .. string.format("%02x", string.byte(inputStr, i))
+    end
+    return hashHex
+end
 
+-- 2. Tự động tìm Server PlatoBoost còn sống (.com hoặc .net)
+local host = "https://api.platoboost.com"
+pcall(function()
+    local hostResponse = fRequest({ Url = host .. "/public/connectivity", Method = "GET" })
+    if hostResponse.StatusCode ~= 200 and hostResponse.StatusCode ~= 429 then
+        host = "https://api.platoboost.net"
+    end
+end)
+
+-- 3. Hàm lấy Link Key cho người dùng copy
+local function copyLink()
+    local identifierHex = lDigest(fGetHwid())
+    
+    local success, response = pcall(function()
+        return fRequest({
+            Url = host .. "/public/start",
+            Method = "POST",
+            Headers = {["Content-Type"] = "application/json"},
+            Body = HttpService:JSONEncode({
+                service = 20358,
+                identifier = identifierHex
+            })
+        })
+    end)
+
+    -- Bắt lỗi nếu Executor không hỗ trợ fRequest hoặc bị chặn
+    if not success or not response then
+        onMessage("Lỗi hệ thống: Executor của bạn chặn HTTP Request!")
+        return false
+    end
+
+    -- Xử lý kết quả từ PlatoBoost
     if response.StatusCode == 200 then
         local decoded = HttpService:JSONDecode(response.Body)
         if decoded.success then
@@ -70,13 +100,20 @@ local function copyLink()
             end
             onMessage("Link copied! Open browser to get key")
             return true
+        else
+            onMessage("PlatoBoost Error: " .. tostring(decoded.message))
+            return false
         end
+    elseif response.StatusCode == 429 then
+        onMessage("Bạn bấm quá nhanh! Vui lòng chờ 20 giây.")
+        return false
+    else
+        onMessage("Lấy link thất bại. Mã lỗi: " .. tostring(response.StatusCode))
+        return false
     end
-    onMessage("Failed to get link, please try again.")
-    return false
 end
 
--- Hàm này dùng để gửi Key lên Cloudflare và lấy Script về
+-- 4. Hàm Gửi Key lên Cloudflare và chạy Script
 local function verifyAndLoadScript(key)
     if requestSending then 
         onMessage("Request in progress, please wait")
@@ -84,40 +121,43 @@ local function verifyAndLoadScript(key)
     end
     
     requestSending = true
+    local identifierHex = lDigest(fGetHwid())
     
-    local response = fRequest({
-        Url = WORKER_URL,
-        Method = "POST",
-        Headers = {
-            ["Content-Type"] = "application/json"
-        },
-        Body = HttpService:JSONEncode({
-            hwid = fGetHwid(),
-            key = key
+    local success, response = pcall(function()
+        return fRequest({
+            Url = WORKER_URL,
+            Method = "POST",
+            Headers = { ["Content-Type"] = "application/json" },
+            Body = HttpService:JSONEncode({
+                hwid = identifierHex,
+                key = key
+            })
         })
-    })
+    end)
     
     requestSending = false
 
+    if not success or not response then
+        onMessage("Không thể kết nối tới Server API!")
+        return false
+    end
+
     if response.StatusCode == 200 then
-        -- Key hợp lệ, nhận script và chạy ngay lập tức
         local scriptCode = response.Body
-        local success, err = pcall(function()
+        local loadSuccess, err = pcall(function()
             loadstring(scriptCode)()
         end)
         
-        if not success then
-            onMessage("Error executing script: " .. tostring(err))
+        if not loadSuccess then
+            onMessage("Lỗi khởi chạy Script: " .. tostring(err))
             return false
         end
         return true
     else
-        -- Lỗi từ máy chủ (sai key, hết hạn, v.v.)
-        onMessage(response.Body or "Invalid or expired key")
+        onMessage(response.Body or "Key không hợp lệ hoặc đã hết hạn")
         return false
     end
 end
-
 -- ============================================
 -- KEY SAVE / LOAD
 -- ============================================
