@@ -29,9 +29,15 @@ end
 -- ============================================
 
 local onMessage = function(message)
-    game:GetService("StarterGui"):SetCore("ChatMakeSystemMessage", {
-        Text = "[7hub] " .. message
-    })
+    -- Print to F9 Console for debugging
+    warn("[7hub DEBUG] " .. tostring(message))
+    
+    -- Attempt to print to game chat (might fail in Evade)
+    pcall(function()
+        game:GetService("StarterGui"):SetCore("ChatMakeSystemMessage", {
+            Text = "[7hub] " .. tostring(message)
+        })
+    end)
 end
 
 repeat task.wait(1) until game:IsLoaded() or game.Players.LocalPlayer
